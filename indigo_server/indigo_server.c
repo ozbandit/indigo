@@ -71,6 +71,7 @@
 #include "ccd_sbig/indigo_ccd_sbig.h"
 #include "ccd_dsi/indigo_ccd_dsi.h"
 #include "ccd_qsi/indigo_ccd_qsi.h"
+#include "ccd_apogee/indigo_ccd_apogee.h"
 #include "gps_nmea/indigo_gps_nmea.h"
 #ifdef INDIGO_MACOS
 #include "ccd_ica/indigo_ccd_ica.h"
@@ -109,6 +110,7 @@ driver_entry_point static_drivers[] = {
 	indigo_ccd_dsi,
 /* Removed temporary as it is not stable and hangs servers on shutdown */
 /*	indigo_ccd_qsi,  */
+	indigo_ccd_apogee,
 	indigo_gps_nmea,
 #ifdef INDIGO_MACOS
 	indigo_ccd_ica,

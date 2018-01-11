@@ -406,9 +406,13 @@ $(BUILD_LIB)/libfli.a: $(BUILD_INCLUDE)/libfli/libfli.h
 #---------------------------------------------------------------------
 
 $(BUILD_LIB)/libapogee.a: indigo_drivers/ccd_apogee/externals/libapogee/*.cpp indigo_drivers/ccd_apogee/externals/libapogee/*.h
-	cd indigo_drivers/ccd_apogee/externals/libapogee; make clean; make; cd ../../../..
-	install -d $(BUILD_LIB)
+	cd indigo_drivers/ccd_apogee/externals/libapogee; make; cd ../../../..
+	install -d $(BUILD_INCLUDE)
+	install -d $(BUILD_INCLUDE)/libapogee
+	install -d $(BUILD_SHARE)/apogee
 	cp indigo_drivers/ccd_apogee/externals/libapogee/libapogee.a $(BUILD_LIB)
+	cp indigo_drivers/ccd_apogee/externals/libapogee/*.h $(BUILD_INCLUDE)/libapogee
+	cp indigo_drivers/ccd_apogee/externals/libapogee/conf/*.txt $(BUILD_SHARE)/apogee
 
 #---------------------------------------------------------------------
 #
