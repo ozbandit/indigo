@@ -399,6 +399,16 @@ $(BUILD_LIB)/libfli.a: $(BUILD_INCLUDE)/libfli/libfli.h
 	install -d $(BUILD_LIB)
 	cp indigo_drivers/ccd_fli/externals/libfli-1.104/libfli.a $(BUILD_LIB)
 
+#---------------------------------------------------------------------
+#
+#	Build libapogee
+#
+#---------------------------------------------------------------------
+
+$(BUILD_LIB)/libapogee.a: indigo_drivers/ccd_apogee/externals/libapogee/*.cpp indigo_drivers/ccd_apogee/externals/libapogee/*.h
+	cd indigo_drivers/ccd_apogee/externals/libapogee; make clean; make; cd ../../../..
+	install -d $(BUILD_LIB)
+	cp indigo_drivers/ccd_apogee/externals/libapogee/libapogee.a $(BUILD_LIB)
 
 #---------------------------------------------------------------------
 #
@@ -858,6 +868,22 @@ $(BUILD_DRIVERS)/indigo_focuser_usbv3: indigo_drivers/focuser_usbv3/indigo_focus
 
 $(BUILD_DRIVERS)/indigo_focuser_usbv3.$(SOEXT): indigo_drivers/focuser_usbv3/indigo_focuser_usbv3.o
 	$(CC) -shared -o $@ $^ $(LDFLAGS) -lindigo
+
+#---------------------------------------------------------------------
+#
+#	Build Apogee CCD driver
+#
+#---------------------------------------------------------------------
+
+$(BUILD_DRIVERS)/indigo_ccd_apogee.a: indigo_drivers/ccd_apogee/indigo_ccd_apogee.o
+	$(AR) $(ARFLAGS) $@ $^
+
+$(BUILD_DRIVERS)/indigo_ccd_apogee: indigo_drivers/ccd_apogee/indigo_ccd_apogee_main.o $(BUILD_DRIVERS)/indigo_ccd_apogee.a $(BUILD_LIB)/libapogee.a
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lindigo
+
+$(BUILD_DRIVERS)/indigo_ccd_apogee.$(SOEXT): indigo_drivers/ccd_apogee/indigo_ccd_apogee.o $(BUILD_LIB)/libapogee.a
+	$(CC) -shared -o $@ $^ $(LDFLAGS) -lindigo
+
 
 #---------------------------------------------------------------------
 #
