@@ -16,3 +16,6 @@
 [submodule "indigo_drivers/mount_nexstar/externals/libnexstar"]
 	path = indigo_drivers/mount_nexstar/externals/libnexstar
 	url = https://github.com/indigo-astronomy/libnexstar.git
+[submodule "indigo_drivers/ccd_apogee/externals/libapogee"]
+	path = indigo_drivers/ccd_apogee/externals/libapogee
+	url = https://github.com/indigo-astronomy/libapogee.git

@@ -1159,3 +1159,4 @@ clean-all: clean
 	cd indigo_drivers/gps_nmea/externals/nmealib; make clean; cd ../../../..
 	cd indigo_drivers/ccd_fli/externals/libfli-1.104; make clean; cd ../../../..
 	cd indigo_drivers/ccd_qsi/externals; rm -rf qsiapi-7.6.0; cd ../../..
+	cd indigo_drivers/ccd_apogee/externals; rm -rf libapogee; cd ../../..
