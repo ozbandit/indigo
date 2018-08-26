@@ -29,7 +29,10 @@ struct AxisConfig {
 	bool valid;
 };
 
+void synscan_mount_connect(indigo_device* device);
 bool synscan_configure(indigo_device* device);
+
+
 //bool synscan_configure_axis_for_rate(indigo_device* device, enum AxisID axis, double rate);
 void synscan_slew_axis_at_rate(indigo_device* device, enum AxisID axis, double rate);
 void slew_timer_callback(indigo_device *device);

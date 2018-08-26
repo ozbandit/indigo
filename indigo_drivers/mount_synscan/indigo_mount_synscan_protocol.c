@@ -91,9 +91,7 @@ static bool synscan_command(indigo_device* device, const char* cmd, char* r) {
 	int nretries = 0;
 	pthread_mutex_lock(&PRIVATE_DATA->port_mutex);
 	while (nretries < 2) {
-		//  Sleep for a bit if we're having to retry
-		//if (nretries > 0)
-		//    sleep(1);
+		//  Count the attempts
 		nretries++;
 
 		//  Flush input
@@ -122,7 +120,7 @@ static bool synscan_command(indigo_device* device, const char* cmd, char* r) {
 		}
 
 		//  Send the command to the port
-		printf("CMD: [%s]\n", cmd);
+		printf("CMD: [%s]  -->  ", cmd);
 		if (!indigo_write(PRIVATE_DATA->handle, cmd, strlen(cmd))) {
 			printf("Sending command failed\n");
 			break;
@@ -142,36 +140,36 @@ static bool synscan_command(indigo_device* device, const char* cmd, char* r) {
 				break;
 			}
 			if (bytes_read > 0) {
-				resp[total_bytes++] = c;
-				if (c == '\r')
-					//			else
+				if (c == SYNSCAN_END_CHAR)
 					break;
-				//		} else {
-				//			errno = ECONNRESET;
-				//			return -1;
+				resp[total_bytes++] = c;
 			}
 		}
 		resp[total_bytes] = 0;
 		if (total_bytes <= 0) {
-		//NSData* resp = [self.transport readUpToChar:'\r' withTimeout:1000];
-		//if (!resp) {
 			printf("Reading response failed\n");
 			continue;
 		}
 
-		//  Check response syntax =...<cr>, if invalid retry
-		//const char* cresp = (const char*) [resp bytes];
+		//  Check response syntax [=|!]...<cr>, if invalid retry
 		size_t len = strlen(resp);
-		printf("RESPONSE: [%s]\n", resp);
-		if (len < 2 || resp[0] != '=' || resp[len - 1] != '\r') {
+		printf("[%s]\n", resp);
+		if (len == 0 || (resp[0] != SYNSCAN_REPLY_CHAR && resp[0] != SYNSCAN_ERROR_CHAR)) {
 			printf("Response syntax error\n");
 			continue;
 		}
 
+		//  Check for error response
+		if (resp[0] == SYNSCAN_ERROR_CHAR) {
+			printf("ERROR response code: %s\n", resp+1);
+			pthread_mutex_unlock(&PRIVATE_DATA->port_mutex);
+			return false;
+		}
+
 		//  Extract response payload, return
 		if (r) {
-			strncpy(r, resp+1, len-2);
-			r[len-2] = 0;
+			strncpy(r, resp+1, len-1);
+			r[len-1] = 0;
 		}
 		pthread_mutex_unlock(&PRIVATE_DATA->port_mutex);
 		return true;
@@ -439,3 +437,10 @@ bool synscan_set_polarscope_brightness(indigo_device* device, unsigned char brig
 	sprintf(buffer, ":V1%02X", brightness);
 	return synscan_command(device, buffer, NULL);
 }
+
+bool synscan_set_st4_guide_rate(indigo_device* device, enum AxisID axis, int rate) {
+	char buffer[7];
+	sprintf(buffer, ":P%c", axis);
+	return synscan_command(device, buffer, NULL);
+}
+

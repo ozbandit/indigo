@@ -45,7 +45,10 @@ bool synscan_configure(indigo_device* device) {
 		printf("ERROR GETTING FIRMWARE\n");
 		return false;
 	}
-	snprintf(MOUNT_INFO_FIRMWARE_ITEM->text.value, INDIGO_VALUE_SIZE, "%2d.%02d.%02d", GET_RELEASE(version), GET_REVISION(version), GET_PATCH(version));
+	if (device->master_device == device)
+		snprintf(MOUNT_INFO_FIRMWARE_ITEM->text.value, INDIGO_VALUE_SIZE, "%2d.%02d.%02d", GET_RELEASE(version), GET_REVISION(version), GET_PATCH(version));
+
+	printf("MOUNT CODE %02lX\n", version & 0xFF);
 
 	//  Query motor status
 	long raMotorStatus = 0;
@@ -69,77 +72,71 @@ bool synscan_configure(indigo_device* device) {
 		synscan_stop_axis(device, kAxisDEC);
 	}
 
-	//  Force configuration if either motor needs initialising
-	//  User might have swapped mounts on us
-	if (raMotorStatus == kStatusNotInitialised || decMotorStatus == kStatusNotInitialised || raMotorStatus == 0x000 || decMotorStatus == 0x000) {
-		PRIVATE_DATA->mountConfigured = false;
-	}
+	//  Read all the mount data
+	//  Query axis 360 degree rotation steps
+	if (!synscan_total_axis_steps(device, kAxisRA, &PRIVATE_DATA->raTotalSteps))
+		return false;
+	if (!synscan_total_axis_steps(device, kAxisDEC, &PRIVATE_DATA->decTotalSteps))
+		return false;
 
-	//  Read all the mount data if we've not already done so
-	if (!PRIVATE_DATA->mountConfigured) {
-		//  Query axis 360 degree rotation steps
-		if (!synscan_total_axis_steps(device, kAxisRA, &PRIVATE_DATA->raTotalSteps))
-			return false;
-		if (!synscan_total_axis_steps(device, kAxisDEC, &PRIVATE_DATA->decTotalSteps))
-			return false;
+	//  Query axis worm rotation steps
+	if (!synscan_worm_rotation_steps(device, kAxisRA, &PRIVATE_DATA->raWormSteps))
+		return false;
+	if (!synscan_worm_rotation_steps(device, kAxisDEC, &PRIVATE_DATA->decWormSteps))
+		return false;
 
-		//  Query axis worm rotation steps
-		if (!synscan_worm_rotation_steps(device, kAxisRA, &PRIVATE_DATA->raWormSteps))
-			return false;
-		if (!synscan_worm_rotation_steps(device, kAxisDEC, &PRIVATE_DATA->decWormSteps))
-			return false;
+	//  Query axis step timer frequency
+	if (!synscan_step_timer_frequency(device, kAxisRA, &PRIVATE_DATA->raTimerFreq))
+		return false;
+	if (!synscan_step_timer_frequency(device, kAxisDEC, &PRIVATE_DATA->decTimerFreq))
+		return false;
 
-		//  Query axis step timer frequency
-		if (!synscan_step_timer_frequency(device, kAxisRA, &PRIVATE_DATA->raTimerFreq))
-			return false;
-		if (!synscan_step_timer_frequency(device, kAxisDEC, &PRIVATE_DATA->decTimerFreq))
-			return false;
-
-		//  Query axis high speed ratio
-		if (!synscan_high_speed_ratio(device, kAxisRA, &PRIVATE_DATA->raHighSpeedFactor))
-			return false;
-		if (!synscan_high_speed_ratio(device, kAxisDEC, &PRIVATE_DATA->decHighSpeedFactor))
-			return false;
+	//  Query axis high speed ratio
+	if (!synscan_high_speed_ratio(device, kAxisRA, &PRIVATE_DATA->raHighSpeedFactor))
+		return false;
+	if (!synscan_high_speed_ratio(device, kAxisDEC, &PRIVATE_DATA->decHighSpeedFactor))
+		return false;
 
 //		PRIVATE_DATA->raTotalSteps = PRIVATE_DATA->decTotalSteps = 9024000;
 //		PRIVATE_DATA->raWormSteps = PRIVATE_DATA->decWormSteps = 50133;
 //		PRIVATE_DATA->raTimerFreq = PRIVATE_DATA->decTimerFreq = 64935;
 //		PRIVATE_DATA->raHighSpeedFactor = PRIVATE_DATA->decHighSpeedFactor = 16;
 
-		//  Check if mount understands polarscope LED brightness
-		unsigned char brightness = 0;
-		if (synscan_set_polarscope_brightness(device, brightness)) {
-			MOUNT_POLARSCOPE_PROPERTY->hidden = false;
-			MOUNT_POLARSCOPE_BRIGHTNESS_ITEM->number.value = 255;
-		}
-
-		//  Determine ZERO positions
-		PRIVATE_DATA->raZeroPos = RA_HOME_POSITION - (PRIVATE_DATA->raTotalSteps / 4);     //  HA == 0 (horizontal shaft, rotated clockwise)
-		PRIVATE_DATA->decZeroPos = DEC_HOME_POSITION - (PRIVATE_DATA->decTotalSteps / 4);  //  DEC has ZERO both east and west sides. This is the EAST zero.
-
-		//  We do not redefine the ZERO positions for SOUTHERN HEMISPHERE because the mount does not redefine the direction and only understands
-		//  step counts that increase going in an anti-clockwise direction. Therefore, we take account of southern hemisphere changes in the
-		//  slewing routines.
-
-		//  Dump out mount data
-		printf("Total Steps:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raTotalSteps, PRIVATE_DATA->decTotalSteps);
-		printf(" Worm Steps:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raWormSteps, PRIVATE_DATA->decWormSteps);
-		printf(" Timer Freq:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raTimerFreq, PRIVATE_DATA->decTimerFreq);
-		printf("  HS Factor:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raHighSpeedFactor, PRIVATE_DATA->decHighSpeedFactor);
-		printf(" Polarscope:  %s\n", PRIVATE_DATA->canSetPolarscopeBrightness ? "YES" : "NO");
-		printf("   Home Pos:  RA == %10lu   DEC == %10lu\n", RA_HOME_POSITION, DEC_HOME_POSITION);
-		printf("   Zero Pos:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raZeroPos, PRIVATE_DATA->decZeroPos);
-
-		//  Determine mount vendor and model
+	//  Check if mount understands polarscope LED brightness
+	unsigned char brightness = 0;
+	if (synscan_set_polarscope_brightness(device, brightness)) {
+		MOUNT_POLARSCOPE_PROPERTY->hidden = false;
+		MOUNT_POLARSCOPE_BRIGHTNESS_ITEM->number.value = 255;
 	}
 
+	//  Determine ZERO positions
+	PRIVATE_DATA->raZeroPos = RA_HOME_POSITION - (PRIVATE_DATA->raTotalSteps / 4);     //  HA == 0 (horizontal shaft, rotated clockwise)
+	PRIVATE_DATA->decZeroPos = DEC_HOME_POSITION - (PRIVATE_DATA->decTotalSteps / 4);  //  DEC has ZERO both east and west sides. This is the EAST zero.
+
+	//  We do not redefine the ZERO positions for SOUTHERN HEMISPHERE because the mount does not redefine the direction and only understands
+	//  step counts that increase going in an anti-clockwise direction. Therefore, we take account of southern hemisphere changes in the
+	//  slewing routines.
+
+	//  Dump out mount data
+	printf("\n");
+	printf("Total Steps:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raTotalSteps, PRIVATE_DATA->decTotalSteps);
+	printf(" Worm Steps:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raWormSteps, PRIVATE_DATA->decWormSteps);
+	printf(" Timer Freq:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raTimerFreq, PRIVATE_DATA->decTimerFreq);
+	printf("  HS Factor:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raHighSpeedFactor, PRIVATE_DATA->decHighSpeedFactor);
+	printf("   Home Pos:  RA == %10lu   DEC == %10lu\n", RA_HOME_POSITION, DEC_HOME_POSITION);
+	printf("   Zero Pos:  RA == %10lu   DEC == %10lu\n", PRIVATE_DATA->raZeroPos, PRIVATE_DATA->decZeroPos);
+	printf(" Polarscope:  %s\n", PRIVATE_DATA->canSetPolarscopeBrightness ? "YES" : "NO");
+	printf("\n");
+
+	//  Determine mount vendor and model
+
 	//  Initialize motors if necessary
-	if (raMotorStatus == kStatusNotInitialised || raMotorStatus == 0x000) {
+	if ((raMotorStatus & kStatusInitMask) == 0) {
 		if (!synscan_init_axis(device, kAxisRA))
 			return false;
 		if (!synscan_motor_status(device, kAxisRA, &raMotorStatus))
 			return false;
-		if (raMotorStatus == kStatusNotInitialised) {
+		if ((raMotorStatus & kStatusInitMask) == 0) {
 			//  This is a fatal error - can't get the motor to initialize
 			printf("RA MOTOR FAILURE: WILL NOT INITIALIZE!\n");
 			return false;
@@ -158,14 +155,14 @@ bool synscan_configure(indigo_device* device) {
 		//  actually if the assumption is that the software restarted AND EQMac previously configured it, then we can recover
 		//  by just reading the parameters and trusting the current position and computing where the home position should be
 
-		printf("RA MOTOR OK %06X\n", raMotorStatus);
+		printf("RA MOTOR OK %06lX\n", raMotorStatus);
 	}
-	if (decMotorStatus == kStatusNotInitialised || decMotorStatus == 0x000) {
+	if ((decMotorStatus & kStatusInitMask) == 0) {
 		if (!synscan_init_axis(device, kAxisDEC))
 			return false;
 		if (!synscan_motor_status(device, kAxisDEC, &decMotorStatus))
 			return false;
-		if (decMotorStatus == kStatusNotInitialised) {
+		if ((decMotorStatus & kStatusInitMask) == 0) {
 			//  This is a fatal error - can't get the motor to initialize
 			printf("DEC MOTOR FAILURE: WILL NOT INITIALIZE!\n");
 			return false;
@@ -180,7 +177,7 @@ bool synscan_configure(indigo_device* device) {
 		//  else this is also a fatal error - we don't know why the motors are not needing INIT
 		//  maybe the software restarted??
 		//  we could receover by configuring, but the user should be told that the assumption is the mount must be homed
-		printf("DEC MOTOR OK %06X\n", decMotorStatus);
+		printf("DEC MOTOR OK %06lX\n", decMotorStatus);
 	}
 
 	//  Configure the mount modes
@@ -198,7 +195,6 @@ bool synscan_configure(indigo_device* device) {
 	printf("   Position:  RA == %g   DEC == %g\n", PRIVATE_DATA->raPosition, PRIVATE_DATA->decPosition);
 
 	//  Consider the mount configured once we reach here
-	PRIVATE_DATA->mountConfigured = true;
 	return true;
 }
 
@@ -216,385 +212,6 @@ static double synscan_tracking_rate(indigo_device* device) {
 
 
 
-
-static bool synscan_should_reconfigure_axis(indigo_device* device, enum AxisID axis, struct AxisConfig* config) {
-	//  Check if we need to re-configure
-	//  Mount seems to lose the turbo status and needs to be reconfigured each time
-	if (config->turbo)
-		return true;
-
-	//  Reference the relevant axis config cache
-	struct AxisConfig* cachedConfig = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisConfig : &PRIVATE_DATA->decAxisConfig;
-
-	//  Check if reconfiguration is needed
-	if (!cachedConfig->valid)
-		return true;
-	if (cachedConfig->direction != config->direction)
-		return true;
-	if (cachedConfig->turbo)
-		return true;
-	return false;
-}
-
-static void synscan_axis_config_for_rate(indigo_device* device, enum AxisID axis, double rate, struct AxisConfig* config) {
-	//  Invert RA direction for southern hemisphere
-	bool south = MOUNT_GEOGRAPHIC_COORDINATES_LATITUDE_ITEM->number.value < 0;
-	if (south && axis == kAxisRA)
-		rate = -rate;
-
-	//  Capture original rate
-	config->slewRate = rate;
-
-	//  Determine direction from rate
-	config->direction = kAxisDirectionFwd;
-	if  (rate < 0) {
-		config->direction = kAxisDirectionRev;
-		rate = -rate;
-	}
-
-	//  Determine whether turbo mode is required for the specified rate
-	config->turbo = false;
-	if (rate > 128 * SIDEREAL_RATE) {
-		config->turbo = true;
-		rate /= (axis == kAxisRA) ? PRIVATE_DATA->raHighSpeedFactor : PRIVATE_DATA->decHighSpeedFactor;
-	}
-
-	//  Compute rate code
-	rate *= ((axis == kAxisRA) ? PRIVATE_DATA->raTotalSteps : PRIVATE_DATA->decTotalSteps);
-	rate /= 3600.0 * 360.0;
-	double freq = (axis == kAxisRA) ? PRIVATE_DATA->raTimerFreq : PRIVATE_DATA->decTimerFreq;
-	rate = freq / rate;
-	config->rateCode = lrint(rate);
-
-	//  Mark as valid
-	config->valid = true;
-}
-
-static bool synscan_configure_axis_for_rate(indigo_device* device, enum AxisID axis, double rate) {
-	//  Compute config required
-	struct AxisConfig requiredConfig;
-	synscan_axis_config_for_rate(device, axis, rate, &requiredConfig);
-
-	//  Determine if simple rate change is sufficient (or full reconfiguration)
-	bool reconfigure = synscan_should_reconfigure_axis(device, axis, &requiredConfig);
-
-	//  Reference relevant axis config cache
-	struct AxisConfig* cachedConfig = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisConfig : &PRIVATE_DATA->decAxisConfig;
-
-	//  Determine whether backlash compensation will be needed
-	//requiredConfig.compensateBacklash = (requiredConfig.direction != cachedConfig->direction);
-
-	//  Invalidate gearing in case of error
-	cachedConfig->valid = false;
-
-	//  Set the gearing and slew rate
-	bool ok = true;
-	if (reconfigure) {
-		ok = ok && synscan_set_axis_gearing(device, axis, requiredConfig.direction, requiredConfig.turbo ? kAxisSpeedHigh : kAxisSpeedLow);
-		if (!ok)
-			return false;
-	}
-	ok = ok && synscan_set_axis_slew_rate(device, axis, requiredConfig.rateCode);
-	if (!ok)
-		return false;
-
-	//  Validate the axis config cache
-	*cachedConfig = requiredConfig;
-	return true;
-}
-
-static bool synscan_update_axis_to_rate(indigo_device* device, enum AxisID axis, double rate, bool* result) {
-	//  Compute config required
-	struct AxisConfig requiredConfig;
-	synscan_axis_config_for_rate(device, axis, rate, &requiredConfig);
-
-	//  Determine if simple rate change is sufficient (or full reconfiguration)
-	bool reconfigure = synscan_should_reconfigure_axis(device, axis, &requiredConfig);
-	if (reconfigure) {
-		*result = false;
-		return true;
-	}
-	else {
-		*result = true;
-	}
-
-	//  Reference relevant axis config cache
-	struct AxisConfig* cachedConfig = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisConfig : &PRIVATE_DATA->decAxisConfig;
-
-	//  Invalidate gearing in case of error
-	cachedConfig->valid = false;
-
-	bool ok = synscan_set_axis_slew_rate(device, axis, requiredConfig.rateCode);
-	if (!ok)
-		return false;
-
-	//  Validate the axis config cache
-	*cachedConfig = requiredConfig;
-	return true;
-}
-
-static double ha_steps_to_position(indigo_device* device, AxisPosition steps) {
-	double hapos = (double)(steps - PRIVATE_DATA->raZeroPos) / (double)PRIVATE_DATA->raTotalSteps;
-	if (hapos < 0)
-		hapos += 1;
-	return hapos;
-}
-
-static double dec_steps_to_position(indigo_device* device, AxisPosition steps) {
-	double decpos = (double)(steps - PRIVATE_DATA->decZeroPos) / (double)PRIVATE_DATA->decTotalSteps;
-	if (decpos < 0)
-		decpos += 1;
-	return decpos;
-}
-
-static AxisPosition ha_position_to_steps(indigo_device* device, double position) {
-	if (position > 0.75)
-		position -= 1.0;
-	return lrint(PRIVATE_DATA->raZeroPos + (position * PRIVATE_DATA->raTotalSteps));
-}
-
-static AxisPosition dec_position_to_steps(indigo_device* device, double position) {
-	if (position > 0.75)
-		position -= 1.0;
-	return lrint(PRIVATE_DATA->decZeroPos + (position * PRIVATE_DATA->decTotalSteps));
-}
-
-void coords_encoder_to_eq(indigo_device* device, double ha_enc, double dec_enc, double* ha, double* dec) {
-	//  Get hemisphere
-	bool south = MOUNT_GEOGRAPHIC_COORDINATES_LATITUDE_ITEM->number.value < 0;
-
-	//  NORTHERN HEMISPHERE
-	//  Convert to Declination in range [-90, +90] with WEST flag
-	//
-	//  DEG:
-	//      [0, 90]         dec = deg,          west = false
-	//      [90, 180]       dec = 180 - deg,    west = true
-	//      [180, 270]      dec = 180 - deg,    west = true
-	//      [270, 360]      dec = deg - 360,    west = false
-	//
-	//
-	//  SOUTHERN HEMISPHERE
-	//  Convert to Declination in range [-90, +90] with WEST flag
-	//
-	//  DEG:
-	//      [0, 90]         dec = -deg,         west = true
-	//      [90, 180]       dec = deg - 180,    west = false
-	//      [180, 270]      dec = deg - 180,    west = false
-	//      [270, 360]      dec = 360 - deg,    west = true
-
-	//  Normal DEC
-	double epdec = dec_enc;
-	if (epdec < 0)
-		epdec += 1.0;
-
-	bool west = false;
-	if (epdec < 0.25)
-		*dec = epdec;
-	else if (epdec < 0.75) {
-		*dec = 0.5 - epdec;
-		west = true;
-	}
-	else // decPos in [0.75, 1.0]
-		*dec = epdec - 1.0;
-
-	//  Adjust for southern hemisphere
-	if (south) {
-		west = !west;
-		*dec = -*dec;
-	}
-	*dec *= 2.0 * M_PI;
-	//eq->west = west;
-
-
-	//  NORTHERN HEMISPHERE
-	//  Convert to HA
-	//      HA represents the time since transitting the meridian.
-	//      Thus:
-	//          [0, 12]     Object is west of meridian
-	//          [-12, 0]    Object is east of meridian and will transit in -ha hours
-	//
-	//  HA Hours:
-	//      [0, 6) W        HA = Hours
-	//      [0, 6) E        HA = Hours - 12
-	//      [6, 12) W       HA = Hours
-	//      [6, 12) E       HA = Hours - 12
-	//      [12, 18) W      HA = Hours - 24
-	//      [12, 18) E      HA = Hours - 12
-	//      [18, 24] W      HA = Hours - 24
-	//      [18, 24] E      HA = Hours - 12
-	//
-	//  In practice, the mount cannot position itself with HA Hours > 12 because the counterweights would be up
-	//  and the scope would be in danger of hitting the mount. With care (i.e. depending on the DEC), we can allow
-	//  HA Hours > 12. However, there is a band of HA Hours centred on 18 that we cannot position to at all. We
-	//  can represent this band as 18+/-N, where N is half the width of the band (i.e. [16,20] would mean N=2).
-	//
-	//
-	//  SOUTHERN HEMISPHERE
-	//  Convert to HA
-	//      HA represents the time since transitting the meridian.
-	//      Thus:
-	//          [0, 12]     Object is east of meridian
-	//          [-12, 0]    Object is west of meridian and will transit in -ha hours
-	//
-	//  HA Hours:
-	//      [6, 0] W        HA = 12 - Hours
-	//      [6, 0] E        HA = -Hours
-	//      [12, 6] W       HA = 12 - Hours
-	//      [12, 6] E       HA = -Hours
-	//      [18, 12] W      HA = 12 - Hours
-	//      [18, 12] E      HA = 24 - Hours
-	//      [24, 18] W      HA = 12 - Hours
-	//      [24, 18] E      HA = 24 - Hours
-
-	if (!south) {
-		if (!west)
-			*ha = ha_enc - 0.5;
-		else if (ha_enc < 0.5)
-			*ha = ha_enc;
-		else
-			*ha = ha_enc - 1.0;
-	}
-	else {
-		if (west)
-			*ha = 0.5 - ha_enc;
-		else if (ha_enc < 0.5)
-			*ha = -ha_enc;
-		else
-			*ha = 1.0 - ha_enc;
-	}
-	if (*ha < -0.5)
-		*ha += 1.0;
-	if (*ha >= 0.5)
-		*ha -= 1.0;
-
-	*ha *= 2.0 * M_PI;
-}
-
-void coords_eq_to_encoder2(indigo_device* device, double ha, double dec, double haPos[], double decPos[]) {
-	//  To do a slew, we have to decide which side of the meridian we'd like to be. Normally that would be
-	//  the side that gives maximum time before a meridian flip would be required. If the object has passed
-	//  the meridian already, then it is setting and we won't need to flip. If it is approaching the meridian,
-	//  we could consider performing an early meridian flip if it is close enough, otherwise ...
-
-	//  Suppose we've decided that DEC should slew eastwards from HOME to the DEC coordinate. How do we decide
-	//  where to slew RA?
-	//
-	//  If we've done our eastward DEC slew from home, the scope is pointing at LST + 6 hours.
-	//  If we slew clockwise in RA for 6 hours, we'd be pointing at LST+12, which might be below horizon if DEC < 90 - LAT.
-	//  If we slew anti-clockwise for 6 hours, we'd be pointing at LST and needing to do a meridian flip.
-	//
-	//  If we take that meridian flip, we're still pointing at LST, but now the DEC slew is westward from home.
-	//  If we slew anti-clockwise 12 hours, we'd be pointing at LST-12, which might be below horizon if DEC < 90 - LAT.
-	//
-	//  With an eastward DEC slew, we can point at targets between LST and LST+12.
-	//  With a  westward DEC slew, we can point at targets between LST and LST-12.
-	//  The east/west sense is reversed for southern hemisphere.
-
-	//  Get hemisphere
-	bool south = MOUNT_GEOGRAPHIC_COORDINATES_LATITUDE_ITEM->number.value < 0;
-
-	//  Convert DEC to Degrees of encoder rotation relative to 0 position
-	//  [-90,90]
-	//
-	//  NORTHERN HEMISPHERE
-	//
-	//  DEC 90              Degrees = 90 W or 90 E
-	//  DEC 75              Degrees = 105 W or 75 E
-	//  DEC 45              Degrees = 135 W or 45 E
-	//  DEC 20              Degrees = 160 W or 20 E
-	//  DEC 0               Degrees = 180 W or 0 E
-	//  DEC -20             Degrees = 200 W or 340 E
-	//  DEC -45             Degrees = 225 W or 315 E
-	//  DEC -75             Degrees = 255 W or 285 E
-	//  DEC -90             Degrees = 270
-	//
-	//
-	//  SOUTHERN HEMISPHERE
-	//
-	//  DEC -90             Degrees = 90
-	//  DEC -75             Degrees = 105 E or 75 W
-	//  DEC -45             Degrees = 135 E or 45 W
-	//  DEC -20             Degrees = 160 E or 20 W
-	//  DEC 0               Degrees = 180 E or 0 W
-	//  DEC  20             Degrees = 200 E or 340 W
-	//  DEC  45             Degrees = 225 E or 315 W
-	//  DEC  75             Degrees = 255 E or 285 W
-	//  DEC  90             Degrees = 270
-
-	//  Generate the two DEC positions (east and west of meridian)
-	double degw = M_PI - dec;   //  NORTH variant by default
-	if (south) {
-		if (dec < 0)
-			degw = -dec;
-		else
-			degw = M_PI + M_PI - dec;
-	}
-
-	double dege = M_PI + dec;   //  SOUTH variant by default
-	if (!south) {
-		if (dec < 0)
-			dege = M_PI + M_PI + dec;
-		else
-			dege = dec;
-	}
-
-	//  Rebase the angles to optimise the DEC slew relative to HOME
-	if (degw > M_PI + M_PI_2)
-		degw -= M_PI + M_PI;
-	if (dege > M_PI + M_PI_2)
-		dege -= M_PI + M_PI;
-	degw /= M_PI + M_PI;
-	dege /= M_PI + M_PI;
-
-	//  HA represents hours since the transit of the object
-	//  < 0 means object has yet to transit
-	//
-	//  convert to [-12,12]
-	if (ha > M_PI)
-		ha -= M_PI + M_PI;
-	if (ha < -M_PI)
-		ha += M_PI + M_PI;
-	assert(ha >= -M_PI && ha <= M_PI);
-
-	//  Compute HA positions to match each DEC position
-	double haw;
-	if (ha >= 0)
-		haw = ha;
-	else
-		haw = ha + M_PI + M_PI;
-	if (south)
-		haw = M_PI - ha;
-
-	double hae = ha + M_PI;
-	if (south) {
-		if (ha >= 0)
-			hae = M_PI + M_PI - ha;
-		else
-			hae = -ha;
-	}
-	haw /= M_PI + M_PI;
-	hae /= M_PI + M_PI;
-
-	assert(haw < 0.5 || hae < 0.5);
-
-	//  Decide whether EAST or WEST provides the "normal" / CW-Down slew and fill in the positions
-	if (haw < 0.5) {
-		haPos[0] = haw;
-		decPos[0] = degw;
-		haPos[1] = hae;
-		decPos[1] = dege;
-	}
-	else {
-		haPos[0] = hae;
-		decPos[0] = dege;
-		haPos[1] = haw;
-		decPos[1] = degw;
-	}
-
-	printf("SOLUTIONS:\n");
-	printf("  OK:  %g,   %g\n", haPos[0], decPos[0]);
-	printf("  UP:  %g,   %g\n", haPos[1], decPos[1]);
-}
 
 
 void synscan_get_coords(indigo_device *device) {
@@ -634,52 +251,6 @@ void synscan_slew_axis_at_rate(indigo_device* device, enum AxisID axis, double r
 	}
 }
 
-static bool synscan_slew_axis_to_position(indigo_device* device, enum AxisID axis, double position) {
-	//  Reference relevant axis config cache
-	struct AxisConfig* cachedConfig = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisConfig : &PRIVATE_DATA->decAxisConfig;
-
-	//  Get axis position
-	AxisPosition currentPosition;
-	bool ok = synscan_axis_position(device, axis, &currentPosition);
-	if (!ok)
-		return false;
-
-	//  Convert position argument to steps
-	AxisPosition steps = (axis == kAxisRA) ? ha_position_to_steps(device, position) : dec_position_to_steps(device, position);
-
-	//  Compute step delta
-	AxisPosition delta = steps - currentPosition;
-
-	//  Initiate axis slew
-	if (delta != 0) {
-		enum AxisDirectionID d = (delta < 0) ? kAxisDirectionRev : kAxisDirectionFwd;
-		delta = labs(delta);
-
-		//		//  Check for backlash
-		//		if (cachedConfig->direction != d) {
-		//			//  Extend delta by the anti-backlash amount
-		//			delta += [self antibacklashStepsForAxis:axis];
-		//			printf("Doing ANTI-BACKLASH slew extension\n");
-		//		}
-
-		AxisPosition slowdown = delta - 80000;
-		if (slowdown < 0)
-			slowdown = delta / 2;
-
-		//  Invalidate axis config since we change to absolute slew mode
-		cachedConfig->valid = false;
-
-		//  Always keep the direction up to date for backlash detection
-		cachedConfig->direction = d;
-
-		//  Initiate the slew
-		ok = ok && synscan_set_axis_gearing(device, axis, d, kAxisSpeedAbsSlew);
-		ok = ok && synscan_set_axis_step_count(device, axis, delta);
-		ok = ok && synscan_set_axis_slowdown(device, axis, slowdown);
-		ok = ok && synscan_slew_axis(device, axis);
-	}
-	return ok;
-}
 
 void synscan_start_tracking_mode(indigo_device* device, enum TrackingMode mode) {
 	if (mode == kTrackingModeOff) {
@@ -689,193 +260,6 @@ void synscan_start_tracking_mode(indigo_device* device, enum TrackingMode mode) 
 		PRIVATE_DATA->raDesiredRate = synscan_tracking_rate(device);
 		PRIVATE_DATA->raDesiredAxisMode = kAxisModeTracking;
 	}
-}
-
-static void axis_timer_callback(indigo_device *device, enum AxisID axis) {
-	enum AxisMode* axisMode = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisMode : &PRIVATE_DATA->decAxisMode;
-	enum AxisMode* desiredAxisMode = (axis == kAxisRA) ? &PRIVATE_DATA->raDesiredAxisMode : &PRIVATE_DATA->decDesiredAxisMode;
-	double desiredAxisRate = (axis == kAxisRA) ? PRIVATE_DATA->raDesiredRate : PRIVATE_DATA->decDesiredRate;
-	struct AxisConfig* cachedConfig = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisConfig : &PRIVATE_DATA->decAxisConfig;
-
-	switch (*axisMode) {
-		case kAxisModeIdle:
-			{
-				switch (*desiredAxisMode) {
-					case kAxisModeIdle:
-						//  Nothing to do
-						break;
-					case kAxisModeGuiding:
-						//  NOT IMPLEMENTED YET
-						break;
-					case kAxisModeTracking:
-					case kAxisModeManualSlewing:
-						//  Configure and slew the axis
-						if (!synscan_configure_axis_for_rate(device, axis, desiredAxisRate) || !synscan_slew_axis(device, axis)) {
-							break;
-						}
-
-						//  Move to tracking/slewing state
-						*axisMode = *desiredAxisMode;
-						break;
-					case kAxisModeSlewing:
-						{
-							if (!synscan_slew_axis_to_position(device, axis, (axis == kAxisRA) ? PRIVATE_DATA->raTargetPosition : PRIVATE_DATA->decTargetPosition))
-								break;
-
-							//  Get the axis status
-							while (true) {
-								long axisStatus;
-								if (!synscan_motor_status(device, axis, &axisStatus))
-									break;
-
-								//  Wait for axis to start moving
-								if ((axisStatus & kStatusActiveMask) != 0)
-									break;
-							}
-
-							*axisMode = kAxisModeSlewing;
-							//usleep(500000);
-						}
-						break;
-					case kAxisModeStopping:
-					case kAxisModeSlewIdle:
-						//  Should never encounter these as desired modes
-						break;
-				}
-			}
-			break;
-
-		case kAxisModeStopping:
-			{
-				//  Get the axis status
-				long axisStatus;
-				if (!synscan_motor_status(device, axis, &axisStatus))
-					break;
-
-				//  Mark axis as stopped if motor has come to rest
-				if ((axisStatus & kStatusActiveMask) == 0)
-					*axisMode = kAxisModeIdle;
-			}
-			break;
-
-		case kAxisModeGuiding:
-			//  NOT IMPLEMENTED YET
-			break;
-
-		case kAxisModeTracking:
-		case kAxisModeManualSlewing:
-			{
-				switch (*desiredAxisMode) {
-					case kAxisModeIdle:
-					case kAxisModeSlewing:
-						synscan_stop_axis(device, axis);
-						*axisMode = kAxisModeStopping;
-						break;
-					case kAxisModeManualSlewing:
-						//  Nothing to do
-						break;
-					case kAxisModeGuiding:
-						//  NOT IMPLEMENTED YET
-						break;
-					case kAxisModeTracking:
-						if (desiredAxisRate != cachedConfig->slewRate) {
-							//  Try a simple rate update on the axis
-							bool result;
-							if (!synscan_update_axis_to_rate(device, axis, desiredAxisRate, &result))
-								break;
-
-							//  If a simple rate adjustment wasn't possible, stop the axis first
-							if (!result) {
-								synscan_stop_axis(device, axis);
-								*axisMode = kAxisModeStopping;
-							}
-						}
-						break;
-					case kAxisModeStopping:
-					case kAxisModeSlewIdle:
-						//  Should never encounter these as desired modes
-						break;
-				}
-			}
-			break;
-
-		case kAxisModeSlewing:
-			{
-				switch (*desiredAxisMode) {
-					case kAxisModeIdle:
-						synscan_stop_axis(device, axis);
-						*axisMode = kAxisModeStopping;
-						break;
-					case kAxisModeGuiding:
-					case kAxisModeTracking:
-					case kAxisModeManualSlewing:
-						//  NOT POSSIBLE - ABORT IT
-						break;
-					case kAxisModeSlewing:
-						{
-							//  Get the axis status
-							long axisStatus;
-							if (!synscan_motor_status(device, axis, &axisStatus))
-								break;
-
-							//  Mark axis as stopped if motor has come to rest
-							if ((axisStatus & kStatusActiveMask) == 0) {
-								*desiredAxisMode = kAxisModeSlewIdle;
-								*axisMode = kAxisModeSlewIdle;
-							}
-						}
-						break;
-					case kAxisModeStopping:
-					case kAxisModeSlewIdle:
-						//  Should never encounter these as desired modes
-						break;
-				}
-			}
-			break;
-
-		case kAxisModeSlewIdle:
-			{
-				switch (*desiredAxisMode) {
-					case kAxisModeIdle:
-						*axisMode = kAxisModeIdle;
-						//  Nothing to do
-						break;
-					case kAxisModeGuiding:
-						//  NOT IMPLEMENTED YET
-						break;
-					case kAxisModeTracking:
-					case kAxisModeManualSlewing:
-						//  Configure and slew the axis
-						if (!synscan_configure_axis_for_rate(device, axis, desiredAxisRate) || !synscan_slew_axis(device, axis)) {
-							break;
-						}
-
-						//  Move to tracking state
-						*axisMode = *desiredAxisMode;
-						break;
-					case kAxisModeSlewing:
-						if (!synscan_slew_axis_to_position(device, axis, (axis == kAxisRA) ? PRIVATE_DATA->raTargetPosition : PRIVATE_DATA->decTargetPosition))
-							break;
-						*axisMode = kAxisModeSlewing;
-						break;
-					case kAxisModeStopping:
-					case kAxisModeSlewIdle:
-						//  Should never encounter these as desired modes
-						break;
-				}
-			}
-			break;
-	}
-}
-
-void ha_axis_timer_callback(indigo_device* device) {
-	axis_timer_callback(device, kAxisRA);
-	indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->ha_axis_timer);
-}
-
-void dec_axis_timer_callback(indigo_device* device) {
-	axis_timer_callback(device, kAxisDEC);
-	indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->dec_axis_timer);
 }
 
 static int synscan_select_best_encoder_point(indigo_device* device, double haPos[], double decPos[]) {
@@ -952,14 +336,14 @@ enum TrackingMode mount_tracking_mode(indigo_device* device) {
 }
 
 void slew_timer_callback(indigo_device *device) {
-	if (PRIVATE_DATA->globalMode != kGlobalModeSlewing) {
-		indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->slew_timer);
-		return;
-	}
+//	if (PRIVATE_DATA->globalMode != kGlobalModeSlewing) {
+//		indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->slew_timer);
+//		return;
+//	}
 
 	switch (PRIVATE_DATA->slew_state) {
 		case SLEW_PHASE0:
-			//  Perform preliminary slew on both axes
+			//  Perform approximate slew on both axes
 			{
 				//  Compute initial target positions
 				double ra = MOUNT_EQUATORIAL_COORDINATES_RA_ITEM->number.target * M_PI / 12.0;
@@ -974,20 +358,24 @@ void slew_timer_callback(indigo_device *device) {
 				int idx = synscan_select_best_encoder_point(device, haPos, decPos);
 				printf("SLEW TO:  %g   /   %g     (HA %g / DEC %g)\n", haPos[idx], decPos[idx], ha, dec);
 
-				//  Limits check
-
-				//  If beyond safe limits due to tracking, do a pre-slew to get back to the edge of limits
-
-				//  If slewing to beyond safe limits, slew dec to position, slew to RA.
-
-				//  Set the desired axis modes to slewing and provide the target coordinates
-
-
 				//  Start the first slew
-				PRIVATE_DATA->raTargetPosition = haPos[idx];
-				PRIVATE_DATA->decTargetPosition = decPos[idx];
-				PRIVATE_DATA->raDesiredAxisMode = kAxisModeSlewing;
-				PRIVATE_DATA->decDesiredAxisMode = kAxisModeSlewing;
+				//if (!synscan_slew_axis_to_position(device, kAxisRA, haPos[idx]) || !synscan_slew_axis_to_position(device, kAxisDEC, decPos[idx]) {
+					//  Abort slew
+					//  alert state the coordinates
+				//}
+
+				//PRIVATE_DATA->raTargetPosition = haPos[idx];
+				//PRIVATE_DATA->decTargetPosition = decPos[idx];
+				//PRIVATE_DATA->raDesiredAxisMode = kAxisModeSlewing;
+				//PRIVATE_DATA->decDesiredAxisMode = kAxisModeSlewing;
+
+				//  Wait for HA axis mode to be slewing and then idle - but need to be careful here
+				//if (PRIVATE_DATA->raAxisMode != kAxisModeSlewIdle)
+				//	break;
+				//if (!mount_wait_for_axis_stopped(device, kAxisRA)) {
+					//  Abort slew
+					//  alaert state
+				//}
 
 				//  Move to next phase
 				PRIVATE_DATA->slew_state = SLEW_PHASE1;
@@ -996,11 +384,6 @@ void slew_timer_callback(indigo_device *device) {
 		case SLEW_PHASE1:
 			//  Wait for HA slew to complete
 			{
-				//  Wait for HA axis mode to be slewing and then idle - but need to be careful here
-				//  Might need a new SlewIdle state so we dont get confused and see Idle when we are just stopping to start a slew
-				if (PRIVATE_DATA->raAxisMode != kAxisModeSlewIdle)
-					break;
-
 				//    Compute precise HA slew for LST + 5 seconds
 				double ra = MOUNT_EQUATORIAL_COORDINATES_RA_ITEM->number.target * M_PI / 12.0;
 				double dec = MOUNT_EQUATORIAL_COORDINATES_DEC_ITEM->number.target * M_PI / 180.0;
@@ -1084,211 +467,670 @@ void slew_timer_callback(indigo_device *device) {
 			break;
 	}
 
-	indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->slew_timer);
 	if (PRIVATE_DATA->slew_state != SLEW_NONE) {
+		indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->slew_timer);
 	} else {
-		//PRIVATE_DATA->slew_timer = NULL;
-		MOUNT_EQUATORIAL_COORDINATES_PROPERTY->state = INDIGO_OK_STATE;
+		PRIVATE_DATA->slew_timer = NULL;
+		//MOUNT_EQUATORIAL_COORDINATES_PROPERTY->state = INDIGO_OK_STATE;
 		indigo_update_property(device, MOUNT_EQUATORIAL_COORDINATES_PROPERTY, NULL);
 	}
 }
 
-void synscan_park(indigo_device* device) {
-	//PRIVATE_DATA->parked = true;  /* a but premature but need to cancel other movements from now on until unparked */
 
+bool synscan_open(indigo_device *device) {
+	char *name = DEVICE_PORT_ITEM->text.value;
+	if (strncmp(name, "synscan://", 10)) {
+		PRIVATE_DATA->handle = indigo_open_serial(name);
+	} else {
+		char *host = name + 10;
+		char *colon = strchr(host, ':');
+		if (colon == NULL) {
+			PRIVATE_DATA->handle = indigo_open_tcp(host, 4030);
+		} else {
+			char host_name[INDIGO_NAME_SIZE];
+			strncpy(host_name, host, colon - host);
+			int port = atoi(colon + 1);
+			PRIVATE_DATA->handle = indigo_open_tcp(host_name, port);
+		}
+	}
+	if (PRIVATE_DATA->handle >= 0) {
+		INDIGO_DRIVER_LOG(DRIVER_NAME, "opened %s", name);
+		return true;
+	} else {
+		INDIGO_DRIVER_ERROR(DRIVER_NAME, "failed to open %s", name);
+		return false;
+	}
 }
 
+void synscan_close(indigo_device *device) {
+	if (PRIVATE_DATA->handle > 0) {
+		close(PRIVATE_DATA->handle);
+		PRIVATE_DATA->handle = 0;
+		INDIGO_DRIVER_LOG(DRIVER_NAME, "disconnected from %s", DEVICE_PORT_ITEM->text.value);
+	}
+}
+
+void mount_handle_coordinates(indigo_device *device) {
+	if (PRIVATE_DATA->globalMode != kGlobalModeIdle) {
+		MOUNT_EQUATORIAL_COORDINATES_PROPERTY->state = INDIGO_ALERT_STATE;
+	}
+	else {
+		MOUNT_EQUATORIAL_COORDINATES_PROPERTY->state = INDIGO_BUSY_STATE;
+
+		//  GOTO requested
+		PRIVATE_DATA->globalMode = kGlobalModeSlewing;
+		PRIVATE_DATA->slew_state = SLEW_PHASE0;
+		PRIVATE_DATA->slew_timer = indigo_set_timer(device, 0, &slew_timer_callback);
+	}
+	indigo_update_coordinates(device, NULL);
+}
+
+void synscan_tracking_timer(indigo_device* device) {
+	const char* message = NULL;
+	if (MOUNT_TRACKING_ON_ITEM->sw.value) {
+		//  Get the desired tracking rate
+		double rate = synscan_tracking_rate(device);
+
+		//  Start tracking
+		if (!synscan_configure_axis_for_rate(device, kAxisRA, rate) || !synscan_slew_axis(device, kAxisRA)) {
+			MOUNT_TRACKING_PROPERTY->state = INDIGO_ALERT_STATE;
+		}
+		message = "tracking started";
+	}
+	else if (MOUNT_TRACKING_OFF_ITEM->sw.value) {
+		if (!synscan_stop_axis(device, kAxisRA)) {
+			MOUNT_TRACKING_PROPERTY->state = INDIGO_ALERT_STATE;
+		}
+		message = "tracking stopped";
+	}
+
+	MOUNT_TRACKING_PROPERTY->state = INDIGO_OK_STATE;
+	indigo_update_property(device, MOUNT_TRACKING_PROPERTY, message);
+}
+
+void mount_handle_tracking(indigo_device *device) {
+	//  Ignore property change if busy
+	if (MOUNT_TRACKING_PROPERTY->state == INDIGO_BUSY_STATE)
+		return;
+
+	//  Ignore tracking request unless idle
+	if (PRIVATE_DATA->globalMode != kGlobalModeIdle) {
+		MOUNT_TRACKING_PROPERTY->state = INDIGO_ALERT_STATE;
+		indigo_update_property(device, MOUNT_TRACKING_PROPERTY, "Tracking change refused - mount busy!");
+		return;
+	}
+
+	//  Start a timer to configure tracking
+	MOUNT_TRACKING_PROPERTY->state = INDIGO_BUSY_STATE;
+	indigo_update_property(device, MOUNT_TRACKING_PROPERTY, NULL);
+	indigo_set_timer(device, 0, &synscan_tracking_timer);
+}
+
+static int mount_slew_rate(indigo_device* device) {
+	if (MOUNT_SLEW_RATE_GUIDE_ITEM->sw.value)
+		return 1;
+	else if (MOUNT_SLEW_RATE_CENTERING_ITEM->sw.value)
+		return 4;
+	else if (MOUNT_SLEW_RATE_FIND_ITEM->sw.value)
+		return 6;
+	else if (MOUNT_SLEW_RATE_MAX_ITEM->sw.value)
+		return 9;
+	else
+		return 1;
+}
+
+static void mount_handle_slew_rate(indigo_device *device) {
+	int slewRate = mount_slew_rate(device);
+	MOUNT_SLEW_RATE_PROPERTY->state = INDIGO_OK_STATE;
+	indigo_update_property(device, MOUNT_SLEW_RATE_PROPERTY, "slew speed = %d", slewRate);
+}
+
+static void mount_handle_motion_dec(indigo_device *device) {
 #if 0
-#if 1
-- (void) pulseGuideRA:(double)ra DEC:(double)dec {
+	char message[INDIGO_VALUE_SIZE];
+	double axisRate = decRates[mount_slew_rate(device)] * SIDEREAL_RATE;
+	if(MOUNT_MOTION_NORTH_ITEM->sw.value) {
+		synscan_slew_axis_at_rate(device, kAxisDEC, -axisRate);
+		strncpy(message,"Moving North...",sizeof(message));
+		MOUNT_MOTION_DEC_PROPERTY->state = INDIGO_BUSY_STATE;
+	} else if (MOUNT_MOTION_SOUTH_ITEM->sw.value) {
+		synscan_slew_axis_at_rate(device, kAxisDEC, axisRate);
+		strncpy(message,"Moving South...",sizeof(message));
+		MOUNT_MOTION_DEC_PROPERTY->state = INDIGO_BUSY_STATE;
+	} else {
+		synscan_stop_and_resume_tracking_for_axis(device, kAxisDEC);
+		strncpy(message,"Stopped moving.",sizeof(message));
+		MOUNT_MOTION_DEC_PROPERTY->state = INDIGO_OK_STATE;
+	}
+	indigo_update_property(device, MOUNT_MOTION_DEC_PROPERTY, message);
+#endif
+}
+
+static void mount_handle_motion_ra(indigo_device *device) {
 #if 0
-	@synchronized(self) {
-		//  Ignore if the mount is not tracking
-		if (self.globalMode != kGlobalModeTracking || self.trackingMode == kTrackingModeOff)
-			return;
+	char message[INDIGO_VALUE_SIZE];
+	double axisRate = raRates[mount_slew_rate(device)] * SIDEREAL_RATE;
+	if (MOUNT_MOTION_WEST_ITEM->sw.value) {
+		synscan_slew_axis_at_rate(device, kAxisRA, axisRate);
+		strncpy(message,"Moving West...",sizeof(message));
+		MOUNT_MOTION_RA_PROPERTY->state = INDIGO_BUSY_STATE;
+	} else if (MOUNT_MOTION_EAST_ITEM->sw.value) {
+		synscan_slew_axis_at_rate(device, kAxisRA, -axisRate);
+		strncpy(message,"Moving East...",sizeof(message));
+		MOUNT_MOTION_RA_PROPERTY->state = INDIGO_BUSY_STATE;
+	}
+	else {
+		synscan_stop_and_resume_tracking_for_axis(device, kAxisRA);
+		strncpy(message,"Stopped moving.",sizeof(message));
+		MOUNT_MOTION_RA_PROPERTY->state = INDIGO_OK_STATE;
+	}
+	indigo_update_property(device, MOUNT_MOTION_RA_PROPERTY, NULL);
+#endif
+}
 
-		//  Get tracking base rate
-		double base_rate = self.trackingRate;
+static void mount_handle_st4_guiding_rate(indigo_device *device) {
+#if 0
+	int offset = 1;                                             /* for Ceslestron 0 is 1% and 99 is 100% */
+	if (PRIVATE_DATA->vendor_id == VNDR_SKYWATCHER) offset = 0; /* there is no offset for Sky-Watcher */
 
-		//  Get pulse rates
-		NSUserDefaults* prefs = [NSUserDefaults standardUserDefaults];
-		NSInteger raPulseRatePercent = [prefs integerForKey:@"raPulseGuideRate"];
-		NSInteger decPulseRatePercent = [prefs integerForKey:@"decPulseGuideRate"];
-		NSInteger minimumPulseLength = [prefs integerForKey:@"minPulseLength"];
-		double raPulseRate = ((double)raPulseRatePercent / 100.0) * base_rate;
-		double decPulseRate = ((double)decPulseRatePercent / 100.0) * base_rate;
-
-		//  Apply RA pulse
-		if (raPulseRatePercent > 0 && ra != 0.0) {
-			[raPulseQueue addOperationWithBlock:^{
-			 NSOperation* op;
-			 if (ra < 0) {
-			 //  Start a WEST slew pulse
-			 op = [raAxis slewAxisAtRate:base_rate+raPulseRate];
-			 [self willChangeValueForKey:@"raGuideStatus"];
-			 _raGuideStatus = [NSString stringWithFormat:@"W %lums", lrint(fabs(ra) * 1000)];
-			 [self didChangeValueForKey:@"raGuideStatus"];
-			 }
-			 else {
-			 //  Start an EAST slew pulse
-			 if (base_rate - raPulseRate < FLT_EPSILON /* 0.001 */)
-			 op = [raAxis stopAxis];
-			 else
-			 op = [raAxis slewAxisAtRate:base_rate-raPulseRate];
-			 [self willChangeValueForKey:@"raGuideStatus"];
-			 _raGuideStatus = [NSString stringWithFormat:@"E %lums", lrint(fabs(ra) * 1000)];
-			 [self didChangeValueForKey:@"raGuideStatus"];
-			 }
-
-			 //  Delay for the pulse duration
-			 printf("Doing RA pulse %g secs\n", ra);
-			 [op waitUntilFinished];
-
-			 useconds_t duration = (useconds_t)lrint(fabs(ra) * 1000000);
-			 if (duration < minimumPulseLength*1000)
-			 duration = (useconds_t)minimumPulseLength*1000;
-			 [self delayWithBlock:^{
-				usleep(duration);
-				}];
-
-			 //  Restore tracking
-			 op = [raAxis slewAxisAtRate:base_rate];
-			 [op waitUntilFinished];
-
-			 [self willChangeValueForKey:@"raGuideStatus"];
-			 _raGuideStatus = nil;
-			 [self didChangeValueForKey:@"raGuideStatus"];
-			 }];
+	/* reset only if input value is changed - better begaviour for Sky-Watcher as there are no separate RA and DEC rates */
+	if ((int)(MOUNT_GUIDE_RATE_RA_ITEM->number.value) != PRIVATE_DATA->st4_ra_rate) {
+		if (!synscan_set_st4_guide_rate(device, (int)(MOUNT_GUIDE_RATE_RA_ITEM->number.value)-1)) {
+			INDIGO_DRIVER_ERROR(DRIVER_NAME, "tc_set_autoguide_rate(%d) = %d", dev_id, res);
+			MOUNT_GUIDE_RATE_PROPERTY->state = INDIGO_ALERT_STATE;
+		} else {
+			//PRIVATE_DATA->st4_ra_rate = (int)(MOUNT_GUIDE_RATE_RA_ITEM->number.value);
 		}
-		else if (_raGuideStatus != nil) {
-			[self willChangeValueForKey:@"raGuideStatus"];
-			_raGuideStatus = nil;
-			[self didChangeValueForKey:@"raGuideStatus"];
-		}
+	}
 
-		//  FIXME - these guiding status messages could overlap if we pulse both axes at once.
-		//          Maybe we need to have separate labels in the UI that light up only when there is a N/S/E/W pulse happening.
-		//          We'd have two of those so we can represent both axes pulsing at once.
-
-		//  Apply DEC pulse
-		if (decPulseRatePercent > 0 && dec != 0.0) {
-			[decPulseQueue addOperationWithBlock:^{
-			 NSOperation* op;
-			 if (dec < 0) {
-			 //  Start a SOUTH slew pulse
-			 op = [decAxis slewAxisAtRate:-decPulseRate];
-			 [self willChangeValueForKey:@"decGuideStatus"];
-			 _decGuideStatus = [NSString stringWithFormat:@"S %lums", lrint(fabs(dec) * 1000)];
-			 [self didChangeValueForKey:@"decGuideStatus"];
-			 }
-			 else {
-			 //  Start an NORTH slew pulse
-			 op = [decAxis slewAxisAtRate:decPulseRate];
-			 [self willChangeValueForKey:@"decGuideStatus"];
-			 _decGuideStatus = [NSString stringWithFormat:@"N %lums", lrint(fabs(dec) * 1000)];
-			 [self didChangeValueForKey:@"decGuideStatus"];
-			 }
-
-			 //  Delay for the pulse duration
-			 printf("Doing DEC pulse %g secs\n", dec);
-			 [op waitUntilFinished];
-			 useconds_t duration = (useconds_t)lrint(fabs(dec) * 1000000);
-			 if (duration < minimumPulseLength*1000)
-			 duration = (useconds_t)minimumPulseLength*1000;
-			 [self delayWithBlock:^{
-				usleep(duration);
-				}];
-
-			 //  Stop motor
-			 op = [decAxis stopAxis];
-			 [op waitUntilFinished];
-
-			 //  Restore status
-			 [self willChangeValueForKey:@"decGuideStatus"];
-			 _decGuideStatus = nil;
-			 [self didChangeValueForKey:@"decGuideStatus"];
-			 }];
-		}
-		else if (_decGuideStatus != nil) {
-			[self willChangeValueForKey:@"decGuideStatus"];
-			_decGuideStatus = nil;
-			[self didChangeValueForKey:@"decGuideStatus"];
+	/* reset only if input value is changed - better begaviour for Sky-Watcher as there are no separate RA and DEC rates */
+	if ((int)(MOUNT_GUIDE_RATE_DEC_ITEM->number.value) != PRIVATE_DATA->st4_dec_rate) {
+		if (!synscan_set_st4_guide_rate(device, (int)(MOUNT_GUIDE_RATE_DEC_ITEM->number.value)-1)) {
+			INDIGO_DRIVER_ERROR(DRIVER_NAME, "tc_set_autoguide_rate(%d) = %d", dev_id, res);
+			MOUNT_GUIDE_RATE_PROPERTY->state = INDIGO_ALERT_STATE;
+		} else {
+			//PRIVATE_DATA->st4_dec_rate = (int)(MOUNT_GUIDE_RATE_DEC_ITEM->number.value);
 		}
 	}
 #endif
+	/* read set values as Sky-Watcher rounds to 12, 25 ,50, 75 and 100 % */
+	//	int st4_ra_rate = tc_get_autoguide_rate(dev_id, TC_AXIS_RA);
+	//	if (st4_ra_rate < 0) {
+	//		INDIGO_DRIVER_ERROR(DRIVER_NAME, "tc_get_autoguide_rate(%d) = %d", dev_id, st4_ra_rate);
+	//	} else {
+	//		MOUNT_GUIDE_RATE_RA_ITEM->number.value = st4_ra_rate + offset;
+	//	}
+	//
+	//	int st4_dec_rate = tc_get_autoguide_rate(dev_id, TC_AXIS_DE);
+	//	if (st4_dec_rate < 0) {
+	//		INDIGO_DRIVER_ERROR(DRIVER_NAME, "tc_get_autoguide_rate(%d) = %d", dev_id, st4_dec_rate);
+	//	} else {
+	//		MOUNT_GUIDE_RATE_DEC_ITEM->number.value = st4_dec_rate + offset;
+	//	}
+
+	MOUNT_GUIDE_RATE_PROPERTY->state = INDIGO_OK_STATE;
+	indigo_update_property(device, MOUNT_GUIDE_RATE_PROPERTY, NULL);
 }
-#endif
 
-- (void) syncTo:(CelestialPoint*)cp {
-#if 0
-	@synchronized(self) {
-		//  Ignore if the mount is not tracking
-		if (self.globalMode != kGlobalModeTracking || self.trackingMode == kTrackingModeOff)
+static bool mount_cancel_slew(indigo_device *device) {
+	if (PRIVATE_DATA->globalMode == kGlobalModeParking || PRIVATE_DATA->globalMode == kGlobalModeSlewing) {
+		PRIVATE_DATA->globalMode = kGlobalModeIdle;
+	}
+	PRIVATE_DATA->raDesiredAxisMode = kAxisModeIdle;
+	PRIVATE_DATA->decDesiredAxisMode = kAxisModeIdle;
+
+	//	MOUNT_MOTION_NORTH_ITEM->sw.value = false;
+	//	MOUNT_MOTION_SOUTH_ITEM->sw.value = false;
+	//	MOUNT_MOTION_DEC_PROPERTY->state = INDIGO_OK_STATE;
+	//	indigo_update_property(device, MOUNT_MOTION_DEC_PROPERTY, NULL);
+	//
+	//	MOUNT_MOTION_WEST_ITEM->sw.value = false;
+	//	MOUNT_MOTION_EAST_ITEM->sw.value = false;
+	//	MOUNT_MOTION_RA_PROPERTY->state = INDIGO_OK_STATE;
+	//	indigo_update_property(device, MOUNT_MOTION_RA_PROPERTY, NULL);
+	//
+	//	MOUNT_EQUATORIAL_COORDINATES_RA_ITEM->number.target = MOUNT_EQUATORIAL_COORDINATES_RA_ITEM->number.value;
+	//	MOUNT_EQUATORIAL_COORDINATES_DEC_ITEM->number.target = MOUNT_EQUATORIAL_COORDINATES_DEC_ITEM->number.value;
+	//	MOUNT_EQUATORIAL_COORDINATES_PROPERTY->state = INDIGO_OK_STATE;
+	//	indigo_update_coordinates(device, NULL);
+
+	MOUNT_ABORT_MOTION_ITEM->sw.value = false;
+	MOUNT_ABORT_MOTION_PROPERTY->state = INDIGO_OK_STATE;
+	indigo_update_property(device, MOUNT_ABORT_MOTION_PROPERTY, "Aborted.");
+	return true;
+}
+
+static void park_timer_callback(indigo_device *device) {
+	if (PRIVATE_DATA->globalMode == kGlobalModeParking) {
+		switch (PRIVATE_DATA->park_state) {
+			case PARK_NONE:
+				break;
+			case PARK_PHASE0:
+			{
+				//  Compute the axis positions for parking
+				double ha = MOUNT_PARK_POSITION_HA_ITEM->number.value * M_PI / 12.0;
+				double dec = MOUNT_PARK_POSITION_DEC_ITEM->number.value * M_PI / 180.0;
+				double haPos[2], decPos[2];
+				coords_eq_to_encoder2(device, ha, dec, haPos, decPos);
+
+				//  Start the axes moving
+				PRIVATE_DATA->raTargetPosition = haPos[0];
+				PRIVATE_DATA->decTargetPosition = decPos[0];
+				PRIVATE_DATA->raDesiredAxisMode = kAxisModeSlewing;
+				PRIVATE_DATA->decDesiredAxisMode = kAxisModeSlewing;
+
+				//  Move to next state
+				PRIVATE_DATA->park_state = PARK_PHASE1;
+			}
+				break;
+
+			case PARK_PHASE1:
+			{
+				//  Check for HA parked
+				if (PRIVATE_DATA->raAxisMode != kAxisModeSlewIdle)
+					break;
+
+				//  Set desired mode to Idle
+				PRIVATE_DATA->raDesiredAxisMode = kAxisModeIdle;
+
+				//  Move to next state
+				PRIVATE_DATA->park_state = PARK_PHASE2;
+			}
+				break;
+
+			case PARK_PHASE2:
+			{
+				//  Check for DEC parked
+				if (PRIVATE_DATA->decAxisMode != kAxisModeSlewIdle)
+					break;
+
+				//  Set desired mode to Idle
+				PRIVATE_DATA->decDesiredAxisMode = kAxisModeIdle;
+
+				//  Update state
+				PRIVATE_DATA->park_state = PARK_NONE;
+				PRIVATE_DATA->globalMode = kGlobalModeParked;
+				PRIVATE_DATA->parked = true;
+				MOUNT_PARK_PARKED_ITEM->sw.value = true;
+				MOUNT_PARK_PROPERTY->state = INDIGO_OK_STATE;
+			}
+				break;
+		}
+	}
+	if (PRIVATE_DATA->globalMode == kGlobalModeParking) {
+//		indigo_reschedule_timer(device, REFRESH_SECONDS, &PRIVATE_DATA->park_timer);
+	}
+	else {
+		PRIVATE_DATA->park_timer = NULL;
+		indigo_update_property(device, MOUNT_PARK_PROPERTY, "Mount Parked.");
+	}
+}
+
+static void position_timer_callback(indigo_device *device) {
+	if (PRIVATE_DATA->handle > 0 && !PRIVATE_DATA->parked) {
+		//  Longitude needed for LST
+		double lng = MOUNT_GEOGRAPHIC_COORDINATES_LONGITUDE_ITEM->number.value;
+
+		//  Get the raw coords
+		synscan_get_coords(device);
+
+		//  Get the LST as quickly as we can after the HA
+		double lst = indigo_lst(lng) * M_PI / 12.0;
+
+		//  Convert Encoder position to EQ
+		coords_encoder_to_eq(device, PRIVATE_DATA->raPosition, PRIVATE_DATA->decPosition, &PRIVATE_DATA->currentHA, &PRIVATE_DATA->currentDec);
+
+		//  Add in LST to get RA
+		PRIVATE_DATA->currentRA = lst - PRIVATE_DATA->currentHA;
+		PRIVATE_DATA->currentRA *= 12.0 / M_PI;
+		PRIVATE_DATA->currentDec *= 180.0 / M_PI;
+		if (PRIVATE_DATA->currentRA < 0)
+			PRIVATE_DATA->currentRA += 24.0;
+		if (PRIVATE_DATA->currentRA >= 24.0)
+			PRIVATE_DATA->currentRA -= 24.0;
+
+		printf("LST: %g\nHA: %g\n", lst * 12.0 / M_PI, PRIVATE_DATA->currentHA);
+
+		//		double diffRA = fabs(MOUNT_EQUATORIAL_COORDINATES_RA_ITEM->number.target - PRIVATE_DATA->currentRA);
+		//		double diffDec = fabs(MOUNT_EQUATORIAL_COORDINATES_DEC_ITEM->number.target - PRIVATE_DATA->currentDec);
+		if (PRIVATE_DATA->slew_state == SLEW_NONE)
+			MOUNT_EQUATORIAL_COORDINATES_PROPERTY->state = INDIGO_OK_STATE;
+		else
+			MOUNT_EQUATORIAL_COORDINATES_PROPERTY->state = INDIGO_BUSY_STATE;
+
+
+		MOUNT_EQUATORIAL_COORDINATES_RA_ITEM->number.value = PRIVATE_DATA->currentRA;
+		MOUNT_EQUATORIAL_COORDINATES_DEC_ITEM->number.value = PRIVATE_DATA->currentDec;
+		indigo_update_coordinates(device, NULL);
+
+		//meade_get_utc(device);
+		//indigo_update_property(device, MOUNT_UTC_TIME_PROPERTY, NULL);
+	}
+	indigo_reschedule_timer(device, 0.5, &PRIVATE_DATA->position_timer);
+}
+
+void synscan_connect_timer_callback(indigo_device* device) {
+	//  Open and configure the mount
+	bool result = synscan_open(device->master_device) && synscan_configure(device);
+	if (result) {
+		PRIVATE_DATA->connections++;
+		CONNECTION_PROPERTY->state = INDIGO_OK_STATE;
+		indigo_update_property(device, CONNECTION_PROPERTY, "connected to mount!");
+
+		//  Here I need to invoke the code in indigo_mount_driver.c on lines 270-334 to define the properties that should now be present.
+
+	}
+	else {
+		CONNECTION_PROPERTY->state = INDIGO_ALERT_STATE;
+		indigo_set_switch(CONNECTION_PROPERTY, CONNECTION_DISCONNECTED_ITEM, true);
+		indigo_update_property(device, CONNECTION_PROPERTY, "Failed to connect to mount");
+	}
+}
+
+void synscan_connect(indigo_device* device) {
+	//  No need to store the timer as this is a one-shot
+	indigo_set_timer(device, 0, &synscan_connect_timer_callback);
+}
+
+void synscan_disconnect(indigo_device* device) {
+//	indigo_cancel_timer(device, &PRIVATE_DATA->ha_axis_timer);
+//	indigo_cancel_timer(device, &PRIVATE_DATA->dec_axis_timer);
+//	indigo_cancel_timer(device, &PRIVATE_DATA->position_timer);
+//	indigo_cancel_timer(device, &PRIVATE_DATA->slew_timer);
+//	PRIVATE_DATA->ha_axis_timer = NULL;
+//	PRIVATE_DATA->dec_axis_timer = NULL;
+//	PRIVATE_DATA->position_timer = NULL;
+//	PRIVATE_DATA->slew_timer = NULL;
+//	PRIVATE_DATA->device_count--;
+//	if (PRIVATE_DATA->device_count <= 0) {
+//		synscan_close(device);
+//	}
+//	CONNECTION_PROPERTY->state = INDIGO_OK_STATE;
+
+	synscan_close(device->master_device);
+}
+
+
+
+void synscan_mount_connect(indigo_device* device) {
+	//  Ignore if we are already processing a connection change
+	if (CONNECTION_PROPERTY->state == INDIGO_BUSY_STATE)
+		return;
+
+	//  Handle connect/disconnect commands
+	if (CONNECTION_CONNECTED_ITEM->sw.value) {
+		//  CONNECT to the mount
+		if (PRIVATE_DATA->connections == 0) {
+			CONNECTION_PROPERTY->state = INDIGO_BUSY_STATE;
+			synscan_connect(device);
 			return;
-
-		//  Get current position
-		EncoderPoint actual;
-		[self currentPosition:&actual];
-
-		//  Get location
-		double lngRad = [PreferencesController longitude];
-
-		//  Get LST
-		double lstRad = [AstroMath localSiderealTime:lngRad];
-
-		//  Compute required HA
-		double ha = lstRad - cp->ra;
-
-		//  Compute unmapped target positions for RA/DEC
-		EquatorialPoint eq = { ha, cp->dec, NO };   //  west:NO -->  this isn't actually used but we do this to silence a warning
-		EncoderPoint target;
-		[Coordinates equatorial:&eq toEncoder:&target];
-
-		//  Do mean to observed on catalog
-
-		//  Add point to SYNC manager
-		SyncPoint* p = [SyncPoint new];
-		p.lst = lstRad;
-		p.catalog_ra = target.ha;
-		p.catalog_dec = target.dec;
-		p.actual_ra = actual.ha;
-		p.actual_dec = actual.dec;
-		p.active = true;
-		[syncManager addPoint:p];
-
-		printf("SYNC DELTA RA: %g    DEC: %g\n", p.actual_ra - p.catalog_ra, p.actual_dec - p.catalog_dec);
-
-		//  User is telling us that current encoder positions (which are changing due to tracking) represent
-		//  the RA/DEC of self.slewTarget.
-		//
-		//  In order to compute a SYNC-DELTA, we need to capture the current positions and current LST.
-		//  Using current LST, we can compute what the target slew positions would have been at that LST, and
-		//  we can compute the DELTA.
-		//
-		//  There may be a slight inaccuracy due to RA changing while we read the position. We can read DEC
-		//  first as it doesn't change unless we are doing a custom tracking mode.
-		//
-		//  The crucial thing is getting as close a match between LST and current positions.
-
-		//  Need to do a test to see how fast the RA encoder changes while tracking.
+		}
+		else
+			PRIVATE_DATA->connections++;
+	}
+	else if (CONNECTION_DISCONNECTED_ITEM->sw.value) {
+		//  DISCONNECT from mount
+		if (PRIVATE_DATA->connections > 0) {
+			PRIVATE_DATA->connections--;
+			if (PRIVATE_DATA->connections == 0)
+				synscan_disconnect(device);
+		}
+	}
+	CONNECTION_PROPERTY->state = INDIGO_OK_STATE;
+}
 
 
-		//  1.  Read the current RA/DEC positions.
-		//  2.  Get the LST
-		//  3.  Compute predicted RA/DEC positions from LST.
-		//  4.  Compute SYNC-DELTA-RA and SYNC-DELTA-DEC.
+//
+//	bool result = true;
+//	if (PRIVATE_DATA->device_count == 0) {
+//		PRIVATE_DATA->device_count++;
+//		CONNECTION_PROPERTY->state = INDIGO_BUSY_STATE;
+//		indigo_update_property(device, CONNECTION_PROPERTY, NULL);//"Connecting to mount...");
+//		result = synscan_open(device);
+//	}
+//	if (result)
+//		result = synscan_configure(device);
+//	if (result) {
+//		strcpy(MOUNT_INFO_VENDOR_ITEM->text.value, "Sky-Watcher");
+//		strcpy(MOUNT_INFO_MODEL_ITEM->text.value, "SynScan");
+//
+//		//  Start timers
+//		PRIVATE_DATA->ha_axis_timer = indigo_set_timer(device, 0, ha_axis_timer_callback);
+//		PRIVATE_DATA->dec_axis_timer = indigo_set_timer(device, 0, dec_axis_timer_callback);
+//		PRIVATE_DATA->position_timer = indigo_set_timer(device, 0, position_timer_callback);
+//		PRIVATE_DATA->slew_timer = indigo_set_timer(device, 0, slew_timer_callback);
+//		CONNECTION_PROPERTY->state = INDIGO_OK_STATE;
+//	}
+//	else {
+//		PRIVATE_DATA->device_count--;
+//		CONNECTION_PROPERTY->state = INDIGO_ALERT_STATE;
+//		indigo_set_switch(CONNECTION_PROPERTY, CONNECTION_DISCONNECTED_ITEM, true);
+//	}
+//}
 
-		//  5.  Repeat this process 2 more times to get 3 SYNC-DELTA pairs.
 
-		//  With 3 pairs, we can form a model of the mount pointing mechanics and transform catalog coordinates into
-		//  mount coordinates.
+void synscan_mount_park(indigo_device* device) {
+#if 0
+	if(PRIVATE_DATA->park_in_progress) {
+		indigo_update_property(device, MOUNT_PARK_PROPERTY, WARN_PARKING_PROGRESS_MSG);
+		return INDIGO_OK;
+	}
+#endif
+//	indigo_property_copy_values(MOUNT_PARK_PROPERTY, property, false);
+	if (MOUNT_PARK_PARKED_ITEM->sw.value) {
+		if (PRIVATE_DATA->globalMode == kGlobalModeIdle) {
+			MOUNT_PARK_PROPERTY->state = INDIGO_BUSY_STATE;
+			indigo_update_property(device, MOUNT_PARK_PROPERTY, "Parking...");
+			PRIVATE_DATA->globalMode = kGlobalModeParking;
+			PRIVATE_DATA->park_state = PARK_PHASE0;
+			PRIVATE_DATA->park_timer = indigo_set_timer(device, 0, park_timer_callback);
+		}
+		else {
+			//  Can't park while mount is doing something else
+			MOUNT_PARK_PROPERTY->state = INDIGO_ALERT_STATE;
+			indigo_update_property(device, MOUNT_PARK_PROPERTY, "Mount busy!");
+		}
+	} else {
+		MOUNT_PARK_PROPERTY->state = INDIGO_BUSY_STATE;
+		indigo_update_property(device, MOUNT_PARK_PROPERTY, "Unparking...");
 
-		//  We form matrices of the three points (actual and catalog).
-		//  We determine T from A = [T]C
-		//  T = A * Inv(C)
+		//  We should try to move to an unpark position here - but we don't have one
 
-		//  We keep all the sync coordinates in encoder units. We do not need time to be stored.
+		PRIVATE_DATA->parked = false;
+		PRIVATE_DATA->globalMode = kGlobalModeIdle;
+		MOUNT_PARK_PROPERTY->state = INDIGO_OK_STATE;
+		indigo_update_property(device, MOUNT_PARK_PROPERTY, "Mount unparked.");
+	}
+}
+
+
+static void axis_timer_callback(indigo_device *device, enum AxisID axis) {
+#if 0
+	enum AxisMode* axisMode = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisMode : &PRIVATE_DATA->decAxisMode;
+	enum AxisMode* desiredAxisMode = (axis == kAxisRA) ? &PRIVATE_DATA->raDesiredAxisMode : &PRIVATE_DATA->decDesiredAxisMode;
+	double desiredAxisRate = (axis == kAxisRA) ? PRIVATE_DATA->raDesiredRate : PRIVATE_DATA->decDesiredRate;
+	struct AxisConfig* cachedConfig = (axis == kAxisRA) ? &PRIVATE_DATA->raAxisConfig : &PRIVATE_DATA->decAxisConfig;
+
+	switch (*axisMode) {
+		case kAxisModeIdle:
+		{
+			switch (*desiredAxisMode) {
+				case kAxisModeIdle:
+					//  Nothing to do
+					break;
+				case kAxisModeGuiding:
+					//  NOT IMPLEMENTED YET
+					break;
+				case kAxisModeTracking:
+				case kAxisModeManualSlewing:
+					//  Configure and slew the axis
+					if (!synscan_configure_axis_for_rate(device, axis, desiredAxisRate) || !synscan_slew_axis(device, axis)) {
+						break;
+					}
+
+					//  Move to tracking/slewing state
+					*axisMode = *desiredAxisMode;
+					break;
+				case kAxisModeSlewing:
+				{
+					if (!synscan_slew_axis_to_position(device, axis, (axis == kAxisRA) ? PRIVATE_DATA->raTargetPosition : PRIVATE_DATA->decTargetPosition))
+						break;
+
+					//  Get the axis status
+					while (true) {
+						long axisStatus;
+						if (!synscan_motor_status(device, axis, &axisStatus))
+							break;
+
+						//  Wait for axis to start moving
+						if ((axisStatus & kStatusActiveMask) != 0)
+							break;
+					}
+
+					*axisMode = kAxisModeSlewing;
+					//usleep(500000);
+				}
+					break;
+				case kAxisModeStopping:
+				case kAxisModeSlewIdle:
+					//  Should never encounter these as desired modes
+					break;
+			}
+		}
+			break;
+
+		case kAxisModeStopping:
+		{
+			//  Get the axis status
+			long axisStatus;
+			if (!synscan_motor_status(device, axis, &axisStatus))
+				break;
+
+			//  Mark axis as stopped if motor has come to rest
+			if ((axisStatus & kStatusActiveMask) == 0)
+				*axisMode = kAxisModeIdle;
+		}
+			break;
+
+		case kAxisModeGuiding:
+			//  NOT IMPLEMENTED YET
+			break;
+
+		case kAxisModeTracking:
+		case kAxisModeManualSlewing:
+		{
+			switch (*desiredAxisMode) {
+				case kAxisModeIdle:
+				case kAxisModeSlewing:
+					synscan_stop_axis(device, axis);
+					*axisMode = kAxisModeStopping;
+					break;
+				case kAxisModeManualSlewing:
+					//  Nothing to do
+					break;
+				case kAxisModeGuiding:
+					//  NOT IMPLEMENTED YET
+					break;
+				case kAxisModeTracking:
+					if (desiredAxisRate != cachedConfig->slewRate) {
+						//  Try a simple rate update on the axis
+						bool result;
+						if (!synscan_update_axis_to_rate(device, axis, desiredAxisRate, &result))
+							break;
+
+						//  If a simple rate adjustment wasn't possible, stop the axis first
+						if (!result) {
+							synscan_stop_axis(device, axis);
+							*axisMode = kAxisModeStopping;
+						}
+					}
+					break;
+				case kAxisModeStopping:
+				case kAxisModeSlewIdle:
+					//  Should never encounter these as desired modes
+					break;
+			}
+		}
+			break;
+
+		case kAxisModeSlewing:
+		{
+			switch (*desiredAxisMode) {
+				case kAxisModeIdle:
+					synscan_stop_axis(device, axis);
+					*axisMode = kAxisModeStopping;
+					break;
+				case kAxisModeGuiding:
+				case kAxisModeTracking:
+				case kAxisModeManualSlewing:
+					//  NOT POSSIBLE - ABORT IT
+					break;
+				case kAxisModeSlewing:
+				{
+					//  Get the axis status
+					long axisStatus;
+					if (!synscan_motor_status(device, axis, &axisStatus))
+						break;
+
+					//  Mark axis as stopped if motor has come to rest
+					if ((axisStatus & kStatusActiveMask) == 0) {
+						*desiredAxisMode = kAxisModeSlewIdle;
+						*axisMode = kAxisModeSlewIdle;
+					}
+				}
+					break;
+				case kAxisModeStopping:
+				case kAxisModeSlewIdle:
+					//  Should never encounter these as desired modes
+					break;
+			}
+		}
+			break;
+
+		case kAxisModeSlewIdle:
+		{
+			switch (*desiredAxisMode) {
+				case kAxisModeIdle:
+					*axisMode = kAxisModeIdle;
+					//  Nothing to do
+					break;
+				case kAxisModeGuiding:
+					//  NOT IMPLEMENTED YET
+					break;
+				case kAxisModeTracking:
+				case kAxisModeManualSlewing:
+					//  Configure and slew the axis
+					if (!synscan_configure_axis_for_rate(device, axis, desiredAxisRate) || !synscan_slew_axis(device, axis)) {
+						break;
+					}
+
+					//  Move to tracking state
+					*axisMode = *desiredAxisMode;
+					break;
+				case kAxisModeSlewing:
+					if (!synscan_slew_axis_to_position(device, axis, (axis == kAxisRA) ? PRIVATE_DATA->raTargetPosition : PRIVATE_DATA->decTargetPosition))
+						break;
+					*axisMode = kAxisModeSlewing;
+					break;
+				case kAxisModeStopping:
+				case kAxisModeSlewIdle:
+					//  Should never encounter these as desired modes
+					break;
+			}
+		}
+			break;
 	}
 #endif
 }
-#endif
+
+void ha_axis_timer_callback(indigo_device* device) {
+	axis_timer_callback(device, kAxisRA);
+	indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->ha_axis_timer);
+}
+
+void dec_axis_timer_callback(indigo_device* device) {
+	axis_timer_callback(device, kAxisDEC);
+	indigo_reschedule_timer(device, 0.25, &PRIVATE_DATA->dec_axis_timer);
+}
+
+

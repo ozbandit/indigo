@@ -28,16 +28,27 @@ enum AxisSpeedID {
 };
 
 enum MotorStatus {
-	kStatusNotInitialised = 0x100,
-	kStatusIdleForward = 0x101,
-	kStatusActiveForward = 0x111,
-	kStatusActiveBackward = 0x311,
-	kStatusIdleBackward = 0x301,
-	kStatusIdleTurboForward = 0x501,
-	kStatusActiveTurboForward = 0x511,
-	kStatusIdleTurboBackward = 0x701,
-	kStatusActiveTurboBackward = 0x711,
-	kStatusActiveMask = 0x010
+	//kStatusNotInitialised = 0x100,
+
+
+//	kStatusIdleForward = 0x100,
+//	kStatusActiveForward = 0x110,
+//	kStatusActiveBackward = 0x310,
+//	kStatusIdleBackward = 0x300,
+//	kStatusIdleTurboForward = 0x500,
+//	kStatusActiveTurboForward = 0x510,
+//	kStatusIdleTurboBackward = 0x700,
+//	kStatusActiveTurboBackward = 0x710,
+
+	kStatusSlewing = 0x100,
+	kStatusSlewingTo = 0x000,
+	kStatusForward = 0x000,
+	kStatusBackward = 0x200,
+	kStatusTurbo = 0x400,
+	kStatusNormal = 0x000,
+
+	kStatusActiveMask = 0x010,
+	kStatusInitMask = 0x001
 	//=      0x1 == slewing, 0x0 == slewingTo, 0x2==slewing back, 0x4==turbo       0 == stopped, 1 == moving           0==not init, 1==init ok
 };
 

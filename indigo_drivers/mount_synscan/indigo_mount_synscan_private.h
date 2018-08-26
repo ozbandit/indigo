@@ -57,6 +57,8 @@ enum ParkState {
 
 typedef struct {
 	int handle;
+	int connections;
+
 	bool parked;
 	bool park_in_progress;
 	char tty_name[INDIGO_VALUE_SIZE];
@@ -66,8 +68,6 @@ typedef struct {
 	//int vendor_id;
 	//pthread_mutex_t serial_mutex;
 	indigo_timer *position_timer, *guider_timer_ra, *guider_timer_dec, *park_timer, *slew_timer, *ha_axis_timer, *dec_axis_timer;
-	//int guide_rate;
-	//indigo_property *command_guide_rate_property;
 
 	int device_count;
 	double currentHA;		//  radians
@@ -81,7 +81,7 @@ typedef struct {
 	indigo_property *operating_mode_property;
 	indigo_property *mount_polarscope_property;
 
-	bool mountConfigured;
+	//bool mountConfigured;
 
 	//  Mount parameters
 	long raTotalSteps;
@@ -132,6 +132,10 @@ typedef struct {
 
 	//  Parking state
 	enum ParkState park_state;
+
+	//  Pulse guiding
+	int pulse_guide_rate;
+	indigo_property *command_guide_rate_property;
 
 } synscan_private_data;
 
